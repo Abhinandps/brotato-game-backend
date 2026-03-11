@@ -11,6 +11,7 @@ import { EnemyService } from "./enemy.service";
 export class GameLoopService implements OnModuleInit {
 
   private loopHandle?: NodeJS.Timeout;
+  private readonly PUBLISH_INTERVAL_MS = 100;
 
   constructor(
     private roomService: RoomService,
@@ -52,6 +53,7 @@ export class GameLoopService implements OnModuleInit {
 
   private updateRoom(room: Room) {
 
+    this.ensureRunning(room);
     this.updatePlayers(room);
     this.updateEnemies(room);
     this.checkCollisions(room);
@@ -62,6 +64,7 @@ export class GameLoopService implements OnModuleInit {
   }
 
   private updatePlayers(room: Room) {
+    let changed = false;
     while (room.inputs.length > 0) {
       const input = room.inputs.shift();
       if (!input) {
@@ -73,6 +76,10 @@ export class GameLoopService implements OnModuleInit {
       }
       player.x += input.dx ?? 0;
       player.y += input.dy ?? 0;
+      changed = true;
+    }
+    if (changed) {
+      room.dirty = true;
     }
   }
 
@@ -82,11 +89,17 @@ export class GameLoopService implements OnModuleInit {
     }
     if (room.enemies.size < 5) {
       this.enemyService.spawnEnemy(room);
+      room.dirty = true;
     }
   }
 
   private checkCollisions(room: Room) {
+    const before = Array.from(room.players.values()).map((p) => p.hp);
     this.simulationService.detectCollisions(room);
+    const after = Array.from(room.players.values()).map((p) => p.hp);
+    if (before.some((hp, idx) => hp !== after[idx])) {
+      room.dirty = true;
+    }
   }
 
   private checkGameOver(room: Room) {
@@ -99,6 +112,7 @@ export class GameLoopService implements OnModuleInit {
     const allDead = Array.from(room.players.values()).every((p) => p.hp <= 0);
     if (allDead) {
       room.state = "FINISHED";
+      room.dirty = true;
       this.redisService.publish(`game:events:${room.id}`, {
         roomId: room.id,
         type: "matchEnded",
@@ -106,14 +120,36 @@ export class GameLoopService implements OnModuleInit {
     }
   }
 
+  private ensureRunning(room: Room) {
+    if (room.state !== "WAITING") {
+      return;
+    }
+    if (room.players.size > 0) {
+      room.state = "RUNNING";
+      room.dirty = true;
+    }
+  }
+
   private publishState(room: Room) {
+    const now = Date.now();
+    if (!room.dirty && now - room.lastPublishedAt < this.PUBLISH_INTERVAL_MS) {
+      return;
+    }
     const state = {
       roomId: room.id,
-      players: Array.from(room.players.values()),
+      players: Array.from(room.players.values()).map((p) => ({
+        id: p.id,
+        x: p.x,
+        y: p.y,
+        hp: p.hp,
+        score: p.score,
+      })),
       enemies: Array.from(room.enemies.values()),
       state: room.state,
     };
     this.redisService.publish(`game:state:${room.id}`, state);
+    room.lastPublishedAt = now;
+    room.dirty = false;
   }
 
   private async persistMatchResult(room: Room) {

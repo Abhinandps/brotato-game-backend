@@ -8,5 +8,7 @@ export interface Room {
   enemies: Map<string, Enemy>;
   inputs: GameInput[];
   resultSaved: boolean;
+  dirty: boolean;
+  lastPublishedAt: number;
   state: "WAITING" | "RUNNING" | "FINISHED";
 }

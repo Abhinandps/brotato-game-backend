@@ -36,12 +36,13 @@ export class GameGateway implements OnModuleInit {
 
   @SubscribeMessage('joinRoom')
   joinRoom(client: Socket, payload: JoinRoomDto) {
+    console.log("Player joining:", payload);
 
     const room = this.roomService.assignRoom(payload.playerId, client.id);
 
     client.join(room.id);
 
-    this.server.to(room.id).emit('playerJoined', payload.playerId);
+    this.server.to(room.id).emit("joinedRoom", { playerId: payload.playerId, roomId: room.id });
 
   }
 

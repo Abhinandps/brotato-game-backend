@@ -43,6 +43,8 @@ export class RoomService {
       enemies: new Map(),
       inputs: [],
       resultSaved: false,
+      dirty: true,
+      lastPublishedAt: 0,
       state: "WAITING"
     };
 
