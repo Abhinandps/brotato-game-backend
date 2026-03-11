@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit } from "@nestjs/common";
 import { RedisService } from "../db/redis/redis.service";
+import { MatchResultService } from "../db/mongo/match-result.service";
 import { GameInput } from "./game-input.interface";
 import { Room } from "../room/room.interface";
 import { RoomService } from "../room/room.service";
@@ -16,6 +17,7 @@ export class GameLoopService implements OnModuleInit {
     private simulationService: SimulationService,
     private enemyService: EnemyService,
     private redisService: RedisService,
+    private matchResultService: MatchResultService,
   ) {}
 
   async onModuleInit() {
@@ -53,7 +55,9 @@ export class GameLoopService implements OnModuleInit {
     this.updatePlayers(room);
     this.updateEnemies(room);
     this.checkCollisions(room);
+    this.checkGameOver(room);
     this.publishState(room);
+    this.persistMatchResult(room);
 
   }
 
@@ -73,6 +77,9 @@ export class GameLoopService implements OnModuleInit {
   }
 
   private updateEnemies(room: Room) {
+    if (room.state === "FINISHED") {
+      return;
+    }
     if (room.enemies.size < 5) {
       this.enemyService.spawnEnemy(room);
     }
@@ -80,6 +87,23 @@ export class GameLoopService implements OnModuleInit {
 
   private checkCollisions(room: Room) {
     this.simulationService.detectCollisions(room);
+  }
+
+  private checkGameOver(room: Room) {
+    if (room.state === "FINISHED") {
+      return;
+    }
+    if (room.players.size === 0) {
+      return;
+    }
+    const allDead = Array.from(room.players.values()).every((p) => p.hp <= 0);
+    if (allDead) {
+      room.state = "FINISHED";
+      this.redisService.publish(`game:events:${room.id}`, {
+        roomId: room.id,
+        type: "matchEnded",
+      });
+    }
   }
 
   private publishState(room: Room) {
@@ -90,6 +114,26 @@ export class GameLoopService implements OnModuleInit {
       state: room.state,
     };
     this.redisService.publish(`game:state:${room.id}`, state);
+  }
+
+  private async persistMatchResult(room: Room) {
+    if (room.state !== "FINISHED" || room.resultSaved) {
+      return;
+    }
+    room.resultSaved = true;
+    await this.matchResultService.saveResult({
+      roomId: room.id,
+      players: Array.from(room.players.values()).map((p) => ({
+        id: p.id,
+        score: p.score,
+        hp: p.hp,
+      })),
+      enemies: Array.from(room.enemies.values()).map((e) => ({
+        id: e.id,
+        hp: e.hp,
+      })),
+      state: room.state,
+    });
   }
 
 }

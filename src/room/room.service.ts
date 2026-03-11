@@ -42,6 +42,7 @@ export class RoomService {
       players: new Map(),
       enemies: new Map(),
       inputs: [],
+      resultSaved: false,
       state: "WAITING"
     };
 

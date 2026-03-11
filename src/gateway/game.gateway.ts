@@ -25,6 +25,13 @@ export class GameGateway implements OnModuleInit {
       }
       this.server.to(roomId).emit("stateUpdate", payload);
     });
+    await this.redisService.psubscribe("game:events:*", (channel, payload) => {
+      const roomId = channel.split(":")[2];
+      if (!roomId) {
+        return;
+      }
+      this.server.to(roomId).emit("gameEvent", payload);
+    });
   }
 
   @SubscribeMessage('joinRoom')
